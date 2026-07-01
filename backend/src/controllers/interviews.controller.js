@@ -1,143 +1,185 @@
-const interviewsModel = require("../models/interviews.model");
+const pool = require('../config/db');
 
-// GET /interviews
-const getAllInterviews = async (req, res) => {
+/**
+ * GET /interviews
+ * Get all interviews
+ */
+const getInterviews = async (req, res) => {
   try {
-    const interviews = await interviewsModel.getAllInterviews();
+    const result = await pool.query(
+      `SELECT i.id, i.application_id, i.scheduled_at, i.type, i.notes, i.status, i.created_at,
+              a.candidate_id, c.full_name, jo.title as offer_title
+       FROM interviews i
+       JOIN applications a ON i.application_id = a.id
+       JOIN candidates c ON a.candidate_id = c.id
+       JOIN job_offers jo ON a.offer_id = jo.id
+       ORDER BY i.scheduled_at DESC`
+    );
 
-    res.json(interviews);
+    res.json({
+      success: true,
+      data: result.rows,
+    });
   } catch (error) {
-    console.error("Error al obtener entrevistas:", error);
-    res.status(500).json({ message: "Error al obtener entrevistas" });
-  }
-};
-
-// GET /interviews/:id
-const getInterviewById = async (req, res) => {
-  const { id } = req.params;
-
-  try {
-    const interview = await interviewsModel.getInterviewById(id);
-
-    if (!interview) {
-      return res.status(404).json({ message: "Entrevista no encontrada" });
-    }
-
-    res.json(interview);
-  } catch (error) {
-    console.error("Error al obtener entrevista:", error);
-    res.status(500).json({ message: "Error al obtener entrevista" });
-  }
-};
-
-// POST /interviews
-const createInterview = async (req, res) => {
-  const { application_id, scheduled_at, type, notes, status } = req.body;
-
-  if (!application_id) {
-    return res.status(400).json({
-      message: "application_id es obligatorio",
+    console.error('Get interviews error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch interviews',
     });
   }
+};
 
+/**
+ * GET /interviews/:id
+ * Get interview by ID
+ */
+const getInterviewsById = async (req, res) => {
   try {
-    const interview = await interviewsModel.createInterview(
-      application_id,
-      scheduled_at,
-      type,
-      notes,
-      status
+    const { id } = req.params;
+
+    const result = await pool.query(
+      `SELECT i.id, i.application_id, i.scheduled_at, i.type, i.notes, i.status, i.created_at,
+              a.candidate_id, c.full_name, jo.title as offer_title
+       FROM interviews i
+       JOIN applications a ON i.application_id = a.id
+       JOIN candidates c ON a.candidate_id = c.id
+       JOIN job_offers jo ON a.offer_id = jo.id
+       WHERE i.id = $1`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Interview not found',
+      });
+    }
+
+    res.json({
+      success: true,
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error('Get interview by ID error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch interview',
+    });
+  }
+};
+
+/**
+ * POST /interviews
+ * Schedule a new interview
+ */
+const createInterviews = async (req, res) => {
+  try {
+    const { application_id, scheduled_at, type, notes, status } = req.body;
+
+    if (!application_id) {
+      return res.status(400).json({
+        success: false,
+        error: 'Application ID is required',
+      });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO interviews (application_id, scheduled_at, type, notes, status)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, application_id, scheduled_at, type, notes, status, created_at`,
+      [application_id, scheduled_at || null, type || null, notes || null, status || 'scheduled']
     );
 
     res.status(201).json({
-      message: "Entrevista creada correctamente",
-      interview,
+      success: true,
+      data: result.rows[0],
     });
   } catch (error) {
-    console.error("Error al crear entrevista:", error);
-
-    if (error.code === "23503") {
-      return res.status(400).json({
-        message: "application_id no existe",
-      });
-    }
-
-    if (error.code === "22P02") {
-      return res.status(400).json({
-        message: "Valor inválido para type o status",
-      });
-    }
-
-    res.status(500).json({ message: "Error al crear entrevista" });
+    console.error('Create interview error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create interview',
+    });
   }
 };
 
-// PUT /interviews/:id
-const updateInterview = async (req, res) => {
-  const { id } = req.params;
-  const { scheduled_at, type, notes, status } = req.body;
-
-  if (!scheduled_at && !type && !notes && !status) {
-    return res.status(400).json({
-      message: "Debes enviar al menos un campo para actualizar",
-    });
-  }
-
+/**
+ * PUT /interviews/:id
+ * Update interview
+ */
+const updateInterviews = async (req, res) => {
   try {
-    const interview = await interviewsModel.updateInterview(
-      id,
-      scheduled_at,
-      type,
-      notes,
-      status
+    const { id } = req.params;
+    const { scheduled_at, type, notes, status } = req.body;
+
+    const result = await pool.query(
+      `UPDATE interviews
+       SET scheduled_at = COALESCE($2, scheduled_at),
+           type = COALESCE($3, type),
+           notes = COALESCE($4, notes),
+           status = COALESCE($5, status)
+       WHERE id = $1
+       RETURNING id, application_id, scheduled_at, type, notes, status, created_at`,
+      [id, scheduled_at, type, notes, status]
     );
 
-    if (!interview) {
-      return res.status(404).json({ message: "Entrevista no encontrada" });
-    }
-
-    res.json({
-      message: "Entrevista actualizada correctamente",
-      interview,
-    });
-  } catch (error) {
-    console.error("Error al actualizar entrevista:", error);
-
-    if (error.code === "22P02") {
-      return res.status(400).json({
-        message: "Valor inválido para type o status",
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Interview not found',
       });
     }
 
-    res.status(500).json({ message: "Error al actualizar entrevista" });
+    res.json({
+      success: true,
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error('Update interview error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update interview',
+    });
   }
 };
 
-// DELETE /interviews/:id
-const deleteInterview = async (req, res) => {
-  const { id } = req.params;
-
+/**
+ * DELETE /interviews/:id
+ * Delete interview
+ */
+const deleteInterviews = async (req, res) => {
   try {
-    const interview = await interviewsModel.deleteInterview(id);
+    const { id } = req.params;
 
-    if (!interview) {
-      return res.status(404).json({ message: "Entrevista no encontrada" });
+    const result = await pool.query(
+      'DELETE FROM interviews WHERE id = $1 RETURNING id',
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Interview not found',
+      });
     }
 
     res.json({
-      message: "Entrevista eliminada correctamente",
-      interview,
+      success: true,
+      data: { id: result.rows[0].id },
     });
   } catch (error) {
-    console.error("Error al eliminar entrevista:", error);
-    res.status(500).json({ message: "Error al eliminar entrevista" });
+    console.error('Delete interview error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete interview',
+    });
   }
 };
 
 module.exports = {
-  getAllInterviews,
-  getInterviewById,
-  createInterview,
-  updateInterview,
-  deleteInterview,
+  getInterviews,
+  getInterviewsById,
+  createInterviews,
+  updateInterviews,
+  deleteInterviews,
 };

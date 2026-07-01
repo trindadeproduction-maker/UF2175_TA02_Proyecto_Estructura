@@ -1,132 +1,193 @@
-const applicationsModel = require("../models/applications.model");
+const pool = require('../config/db');
 
-// GET /applications
-const getAllApplications = async (req, res) => {
-    try {
-        const applications = await applicationsModel.getAllApplications();
-        res.json(applications);
-    } catch (error) {
-        console.error("Error al obtener candidaturas:", error);
-        res.status(500).json({ message: "Error al obtener candidaturas" });
-    }
+/**
+ * GET /applications
+ * Get all applications
+ */
+const getApplications = async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT a.id, a.candidate_id, a.offer_id, a.status, a.cover_letter, a.applied_at, a.updated_at,
+              c.full_name, jo.title as offer_title
+       FROM applications a
+       JOIN candidates c ON a.candidate_id = c.id
+       JOIN job_offers jo ON a.offer_id = jo.id
+       ORDER BY a.applied_at DESC`
+    );
+
+    res.json({
+      success: true,
+      data: result.rows,
+    });
+  } catch (error) {
+    console.error('Get applications error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch applications',
+    });
+  }
 };
 
-// GET /applications/:id
-const getApplicationById = async (req, res) => {
+/**
+ * GET /applications/:id
+ * Get application by ID
+ */
+const getApplicationsById = async (req, res) => {
+  try {
     const { id } = req.params;
 
-    try {
-        const application = await applicationsModel.getApplicationById(id);
+    const result = await pool.query(
+      `SELECT a.id, a.candidate_id, a.offer_id, a.status, a.cover_letter, a.applied_at, a.updated_at,
+              c.full_name, jo.title as offer_title
+       FROM applications a
+       JOIN candidates c ON a.candidate_id = c.id
+       JOIN job_offers jo ON a.offer_id = jo.id
+       WHERE a.id = $1`,
+      [id]
+    );
 
-        if (!application) {
-            return res.status(404).json({ message: "Candidatura no encontrada" });
-        }
-
-        res.json(application);
-    } catch (error) {
-        console.error("Error al obtener candidatura:", error);
-        res.status(500).json({ message: "Error al obtener candidatura" });
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Application not found',
+      });
     }
+
+    res.json({
+      success: true,
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error('Get application by ID error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch application',
+    });
+  }
 };
 
-// POST /applications
-const createApplication = async (req, res) => {
+/**
+ * POST /applications
+ * Create a new application
+ */
+const createApplications = async (req, res) => {
+  try {
     const { candidate_id, offer_id, status, cover_letter } = req.body;
 
     if (!candidate_id || !offer_id) {
-        return res.status(400).json({
-            message: "candidate_id y offer_id son obligatorios",
-        });
+      return res.status(400).json({
+        success: false,
+        error: 'Candidate ID and offer ID are required',
+      });
     }
 
-    try {
-        const application = await applicationsModel.createApplication(
-            candidate_id,
-            offer_id,
-            status,
-            cover_letter
-        );
+    const result = await pool.query(
+      `INSERT INTO applications (candidate_id, offer_id, status, cover_letter)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, candidate_id, offer_id, status, cover_letter, applied_at, updated_at`,
+      [candidate_id, offer_id, status || 'applied', cover_letter || null]
+    );
 
-        res.status(201).json({
-            message: "Candidatura creada correctamente",
-            application,
-        });
-    } catch (error) {
-        console.error("Error al crear candidatura:", error);
-
-        if (error.code === "23505") {
-            return res.status(409).json({
-                message: "Este candidato ya ha aplicado a esta oferta",
-            });
-        }
-
-        if (error.code === "23503") {
-            return res.status(400).json({
-                message: "candidate_id u offer_id no existe",
-            });
-        }
-
-        res.status(500).json({ message: "Error al crear candidatura" });
+    res.status(201).json({
+      success: true,
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error('Create application error:', error);
+    if (error.code === '23505') {
+      return res.status(409).json({
+        success: false,
+        error: 'Candidate has already applied to this offer',
+      });
     }
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create application',
+    });
+  }
 };
 
-// PUT /applications/:id
-const updateApplication = async (req, res) => {
+/**
+ * PUT /applications/:id
+ * Update application status
+ */
+const updateApplications = async (req, res) => {
+  try {
     const { id } = req.params;
-    const { status, cover_letter } = req.body;
+    const { status } = req.body;
 
-    if (!status && !cover_letter) {
-        return res.status(400).json({
-            message: "Debes enviar status o cover_letter para actualizar",
-        });
+    if (!status) {
+      return res.status(400).json({
+        success: false,
+        error: 'Status is required',
+      });
     }
 
-    try {
-        const application = await applicationsModel.updateApplication(
-            id,
-            status,
-            cover_letter
-        );
+    const result = await pool.query(
+      `UPDATE applications
+       SET status = $2, updated_at = NOW()
+       WHERE id = $1
+       RETURNING id, candidate_id, offer_id, status, cover_letter, applied_at, updated_at`,
+      [id, status]
+    );
 
-        if (!application) {
-            return res.status(404).json({ message: "Candidatura no encontrada" });
-        }
-
-        res.json({
-            message: "Candidatura actualizada correctamente",
-            application,
-        });
-    } catch (error) {
-        console.error("Error al actualizar candidatura:", error);
-        res.status(500).json({ message: "Error al actualizar candidatura" });
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Application not found',
+      });
     }
+
+    res.json({
+      success: true,
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error('Update application error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update application',
+    });
+  }
 };
 
-// DELETE /applications/:id
-const deleteApplication = async (req, res) => {
+/**
+ * DELETE /applications/:id
+ * Delete application
+ */
+const deleteApplications = async (req, res) => {
+  try {
     const { id } = req.params;
 
-    try {
-        const application = await applicationsModel.deleteApplication(id);
+    const result = await pool.query(
+      'DELETE FROM applications WHERE id = $1 RETURNING id',
+      [id]
+    );
 
-        if (!application) {
-            return res.status(404).json({ message: "Candidatura no encontrada" });
-        }
-
-        res.json({
-            message: "Candidatura eliminada correctamente",
-            application,
-        });
-    } catch (error) {
-        console.error("Error al eliminar candidatura:", error);
-        res.status(500).json({ message: "Error al eliminar candidatura" });
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Application not found',
+      });
     }
+
+    res.json({
+      success: true,
+      data: { id: result.rows[0].id },
+    });
+  } catch (error) {
+    console.error('Delete application error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete application',
+    });
+  }
 };
 
 module.exports = {
-    getAllApplications,
-    getApplicationById,
-    createApplication,
-    updateApplication,
-    deleteApplication,
+  getApplications,
+  getApplicationsById,
+  createApplications,
+  updateApplications,
+  deleteApplications,
 };

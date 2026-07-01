@@ -1,180 +1,136 @@
-const technologiesModel = require("../models/technologies.model");
+const pool = require('../config/db');
 
-
+/**
+ * GET /technologies
+ * Get all technologies
+ */
 const getTechnologies = async (req, res) => {
-    try {
+  try {
+    const result = await pool.query(
+      'SELECT id, name, category FROM technologies ORDER BY name ASC'
+    );
 
-        const technologies = await technologiesModel.getTechnologies();
-
-        res.json(technologies);
-
-    } catch (error) {
-
-        console.error(error);
-        res.status(500).json({ error: "Error del servidor" });
-    }
-
+    res.json({
+      success: true,
+      data: result.rows,
+    });
+  } catch (error) {
+    console.error('Get technologies error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch technologies',
+    });
+  }
 };
 
+/**
+ * GET /technologies/:id
+ * Get technology by ID
+ */
 const getTechnologiesById = async (req, res) => {
-     const {id} = req.params;
-    
-     try {
+  try {
+    const { id } = req.params;
 
-        const technologies = await technologiesModel.getTechnologiesById(id);
+    const result = await pool.query(
+      'SELECT id, name, category FROM technologies WHERE id = $1',
+      [id]
+    );
 
-
-    if (!technologies) {
-        return res.status(404).json({ error: "No encontrado" });
-    }
-        res.json(technologies);
-
-    } catch (error) {
-
-        console.error(error);
-        res.status(500).json({ error: "Error del servidor" });
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Technology not found',
+      });
     }
 
+    res.json({
+      success: true,
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error('Get technology by ID error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch technology',
+    });
+  }
 };
 
-
+/**
+ * POST /technologies
+ * Create a new technology
+ */
 const createTechnologies = async (req, res) => {
+  try {
+    const { name, category } = req.body;
 
-    try {
-
-        if (!req.body || (Array.isArray(req.body) && req.body.length === 0)) {
-            return res.status(400).json({
-                error: "El body no puede estar vacio"
-            });
-        }
-
-        if (!Array.isArray(req.body)) {
-            const insert = technologiesModel.buildTechnologiesInsert(req.body);
-
-            if (insert.error) {
-                return res.status(400).json({ error: insert.error });
-            }
-
-            const result = await pool.query(insert.query, insert.values);
-            return res.status(201).json(result.rows[0]);
-        }
-
-        const client = await pool.connect();
-
-        try {
-            await client.query("BEGIN");
-            const insertedTechnologies = [];
-
-            for (const tecnologies of req.body) {
-                const insert = technologiesModel.buildTechnologiesInsert(tecnologies);
-
-                if (insert.error) {
-                    await client.query("ROLLBACK");
-                    return res.status(400).json({ error: insert.error });
-                }
-
-                const result = await client.query(insert.query, insert.values);
-                insertedTechnologies.push(result.rows[0]);
-            }
-
-            await client.query("COMMIT");
-            return res.status(201).json(insertedTechnologies);
-        } catch (error) {
-            await client.query("ROLLBACK");
-            throw error;
-        } finally {
-            client.release();
-        }
-
-    } catch (error) {
-
-        res.status(500).json({
-            error: error.message
-        });
-
+    if (!name) {
+      return res.status(400).json({
+        success: false,
+        error: 'Technology name is required',
+      });
     }
 
+    const result = await pool.query(
+      'INSERT INTO technologies (name, category) VALUES ($1, $2) RETURNING id, name, category',
+      [name, category || null]
+    );
+
+    res.status(201).json({
+      success: true,
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error('Create technology error:', error);
+    if (error.code === '23505') {
+      return res.status(409).json({
+        success: false,
+        error: 'Technology name already exists',
+      });
+    }
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create technology',
+    });
+  }
 };
 
-const buildTechnologiesUpdate = (id, tecnologies) => {
-
-    const {name, category} = tecnologies;
-
-    if (!Number.isInteger(Number(id))) {
-        return { error: "id debe ser un número entero" };
-    }
-
-    if (!name || name.length > 200) {
-        return { error: "Nombre de la tecnologia es obligatorio" };
-    }
-
-    if (!category || category.length > 100) {
-        return { error: "Introduce categoria" };
-    }
-
-    return {
-        query: `
-            UPDATE technologies
-            SET name = $2, category = $3
-            WHERE id = $1
-            RETURNING *`,
-        values: [id,name,category]
-    };
-};
-
-const updateTechnologies = async (req, res) => {
-    try {
-        const { id } = req.params;
-
-        if (!req.body || Object.keys(req.body).length === 0) {
-            return res.status(400).json({ error: "El body no puede estar vacio" });
-        }
-
-        const update = buildTechnologiesUpdate(id, req.body);
-
-        if (update.error) {
-            return res.status(400).json({ error: update.error });
-        }
-
-        const result = await pool.query(update.query, update.values);
-
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: "Tecnologia no encontrada" });
-        }
-
-        return res.status(200).json(result.rows[0]);
-
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-};
-
+/**
+ * DELETE /technologies/:id
+ * Delete technology
+ */
 const deleteTechnologies = async (req, res) => {
-    try {
-        const { id } = req.params;
+  try {
+    const { id } = req.params;
 
-        const result = await pool.query(`
-            DELETE FROM technologies
-            WHERE id = $1
-            RETURNING *
-        `, [id]);
+    const result = await pool.query(
+      'DELETE FROM technologies WHERE id = $1 RETURNING id',
+      [id]
+    );
 
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: "Tecnologia no encontrada" });
-        }
-
-        return res.status(200).json(result.rows[0]);
-
-    } catch (error) {
-        res.status(500).json({ error: error.message });
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Technology not found',
+      });
     }
-};
 
+    res.json({
+      success: true,
+      data: { id: result.rows[0].id },
+    });
+  } catch (error) {
+    console.error('Delete technology error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete technology',
+    });
+  }
+};
 
 module.exports = {
-    getTechnologies,
-    getTechnologiesById,
-    createTechnologies,
-    updateTechnologies,
-    deleteTechnologies
+  getTechnologies,
+  getTechnologiesById,
+  createTechnologies,
+  deleteTechnologies,
 };
