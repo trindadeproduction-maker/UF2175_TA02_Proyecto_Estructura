@@ -18,6 +18,7 @@ const interviewsRoutes = require('./routes/interviews.routes');
 const favoritesRoutes = require('./routes/favorites.routes');
 const applicationsRoutes = require('./routes/applications.routes');
 const salariesRoutes = require('./routes/salaries.routes');
+const reviewsRoutes = require('./routes/reviews.routes');
 
 const app = express();
 
@@ -43,6 +44,7 @@ app.use('/favorites', favoritesRoutes);
 app.use('/offerTechnologies', offerTechnologiesRoutes);
 app.use('/applications', applicationsRoutes);
 app.use('/salaries', salariesRoutes);
+app.use('/reviews', reviewsRoutes);
 
 // 404 handler
 app.use(notFoundHandler);
