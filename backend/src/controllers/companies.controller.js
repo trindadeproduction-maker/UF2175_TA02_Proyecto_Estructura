@@ -1,261 +1,183 @@
-const pool = require("../config/db");
+const pool = require('../config/db');
 
+/**
+ * GET /companies
+ * Get all companies
+ */
 const getCompanies = async (req, res) => {
-    try {
+  try {
+    const result = await pool.query(
+      `SELECT c.id, c.user_id, c.name, c.description, c.industry, c.size, c.location, c.website, c.created_at,
+              u.email, u.role
+       FROM companies c
+       JOIN users u ON c.user_id = u.id
+       ORDER BY c.created_at DESC`
+    );
 
-        const result = await pool.query(`
-            SELECT *
-            FROM companies
-            ORDER BY name
-        `);
-
-        res.json(result.rows);
-
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: "Error del servidor" });
-    }
-
+    res.json({
+      success: true,
+      data: result.rows,
+    });
+  } catch (error) {
+    console.error('Get companies error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch companies',
+    });
+  }
 };
 
+/**
+ * GET /companies/:id
+ * Get company by ID
+ */
 const getCompaniesById = async (req, res) => {
-    try {
+  try {
+    const { id } = req.params;
 
-        const {id} = req.params;
-
-        const result = await pool.query(`
-            SELECT *
-            FROM companies
-            WHERE id = $1
-            ORDER BY name
-        `,
-        [id]
+    const result = await pool.query(
+      `SELECT c.id, c.user_id, c.name, c.description, c.industry, c.size, c.location, c.website, c.created_at,
+              u.email, u.role
+       FROM companies c
+       JOIN users u ON c.user_id = u.id
+       WHERE c.id = $1`,
+      [id]
     );
 
     if (result.rows.length === 0) {
-        return res.status(404).json({ error: "No encontrado" });
-    }
-    
-    res.json(result.rows[0]);
-
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: "Error del servidor" });
+      return res.status(404).json({
+        success: false,
+        error: 'Company not found',
+      });
     }
 
+    res.json({
+      success: true,
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error('Get company by ID error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch company',
+    });
+  }
 };
 
-const buildCompaniesInsert = (companies) => {
-
-    const COMPANY_SIZES = ["startup","small","medium","large","enterprise"];
-
-
-    const {user_id, name, description,industry,size,location,website } = companies;
-
-
-    if (!user_id || !Number.isInteger(user_id)) {
-        return { error: "user_id debe ser un numero entero" };
-    }
-
-    if (!name || name.length>200) {
-        return { error: "Nombre de la compañia es obligatoria"};
-    }
-
-    if(!description){
-        return {error:"Introduce una breve descripcion"};
-    }
-
-    if(!industry || industry.length>100){
-        return {error:"Introduce industria"};
-    }
-
-    if(!size || !COMPANY_SIZES.includes(size)){
-        return {error: "size debe ser startup, small, medium, large o enterprise"};
-    }
-
-
-    if(!location || location.length>150){
-        return {error:"Tienes que introducir una direccion"};
-    }
-
-    if(!website || website.length>300){
-        return {error:"Tienes que introducir una pagina web correcta"};
-    }
-
-    const columns = ["user_id","name","description","industry","size","location","website"];
-    const values = [user_id, name, description,industry,size,location,website];
-    const params = ["$1", "$2","$3","$4","$5","$6","$7"];
-
-
-
-    return {
-        query: `
-            INSERT INTO companies (${columns.join(", ")})
-            VALUES (${params.join(", ")})
-            RETURNING *`,
-        values
-    };
-};
-
+/**
+ * POST /companies
+ * Create a new company
+ */
 const createCompanies = async (req, res) => {
+  try {
+    const { user_id, name, description, industry, size, location, website } = req.body;
 
-    try {
-
-        if (!req.body || (Array.isArray(req.body) && req.body.length === 0)) {
-            return res.status(400).json({
-                error: "El body no puede estar vacio"
-            });
-        }
-
-        if (!Array.isArray(req.body)) {
-            const insert = buildCompaniesInsert(req.body);
-
-            if (insert.error) {
-                return res.status(400).json({ error: insert.error });
-            }
-
-            const result = await pool.query(insert.query, insert.values);
-            return res.status(201).json(result.rows[0]);
-        }
-
-        const client = await pool.connect();
-
-        try {
-            await client.query("BEGIN");
-            const insertedCompanies = [];
-
-            for (const companies of req.body) {
-                const insert = buildCompaniesInsert(companies);
-
-                if (insert.error) {
-                    await client.query("ROLLBACK");
-                    return res.status(400).json({ error: insert.error });
-                }
-
-                const result = await client.query(insert.query, insert.values);
-                insertedCompanies.push(result.rows[0]);
-            }
-
-            await client.query("COMMIT");
-            return res.status(201).json(insertedCompanies);
-        } catch (error) {
-            await client.query("ROLLBACK");
-            throw error;
-        } finally {
-            client.release();
-        }
-
-    } catch (error) {
-
-        res.status(500).json({
-            error: error.message
-        });
-
+    if (!user_id || !name) {
+      return res.status(400).json({
+        success: false,
+        error: 'User ID and company name are required',
+      });
     }
 
+    const result = await pool.query(
+      `INSERT INTO companies (user_id, name, description, industry, size, location, website)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, user_id, name, description, industry, size, location, website, created_at`,
+      [user_id, name, description || null, industry || null, size || null, location || null, website || null]
+    );
+
+    res.status(201).json({
+      success: true,
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error('Create company error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create company',
+    });
+  }
 };
 
-const buildCompaniesUpdate = (id, companies) => {
-    const COMPANY_SIZES = ["startup", "small", "medium", "large", "enterprise"];
-
-    const { user_id, name, description, industry, size, location, website } = companies;
-
-    if (!Number.isInteger(Number(id))) {
-        return { error: "id debe ser un número entero" };
-    }
-
-    if (!user_id || !Number.isInteger(user_id)) {
-        return { error: "user_id debe ser un número entero" };
-    }
-
-    if (!name || name.length > 200) {
-        return { error: "Nombre de la compañia es obligatorio" };
-    }
-
-    if (!description) {
-        return { error: "Introduce una breve descripcion" };
-    }
-
-    if (!industry || industry.length > 100) {
-        return { error: "Introduce industria" };
-    }
-
-    if (!size || !COMPANY_SIZES.includes(size)) {
-        return { error: "size debe ser startup, small, medium, large o enterprise" };
-    }
-
-    if (!location || location.length > 150) {
-        return { error: "Tienes que introducir una direccion" };
-    }
-
-    if (!website || website.length > 300) {
-        return { error: "Tienes que introducir una pagina web correcta" };
-    }
-
-    return {
-        query: `
-            UPDATE companies
-            SET user_id = $1, name = $2, description = $3,
-                industry = $4, size = $5, location = $6, website = $7
-            WHERE id = $8
-            RETURNING *`,
-        values: [user_id, name, description, industry, size, location, website, id]
-    };
-};
-
+/**
+ * PUT /companies/:id
+ * Update company
+ */
 const updateCompanies = async (req, res) => {
-    try {
-        const { id } = req.params;
+  try {
+    const { id } = req.params;
+    const { name, description, industry, size, location, website } = req.body;
 
-        if (!req.body || Object.keys(req.body).length === 0) {
-            return res.status(400).json({ error: "El body no puede estar vacio" });
-        }
+    const result = await pool.query(
+      `UPDATE companies
+       SET name = COALESCE($2, name),
+           description = COALESCE($3, description),
+           industry = COALESCE($4, industry),
+           size = COALESCE($5, size),
+           location = COALESCE($6, location),
+           website = COALESCE($7, website)
+       WHERE id = $1
+       RETURNING id, user_id, name, description, industry, size, location, website, created_at`,
+      [id, name, description, industry, size, location, website]
+    );
 
-        const update = buildCompaniesUpdate(id, req.body);
-
-        if (update.error) {
-            return res.status(400).json({ error: update.error });
-        }
-
-        const result = await pool.query(update.query, update.values);
-
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: "Empresa no encontrada" });
-        }
-
-        return res.status(200).json(result.rows[0]);
-
-    } catch (error) {
-        res.status(500).json({ error: error.message });
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Company not found',
+      });
     }
+
+    res.json({
+      success: true,
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error('Update company error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update company',
+    });
+  }
 };
 
+/**
+ * DELETE /companies/:id
+ * Delete company
+ */
 const deleteCompanies = async (req, res) => {
-    try {
-        const { id } = req.params;
+  try {
+    const { id } = req.params;
 
-        const result = await pool.query(`
-            DELETE FROM companies
-            WHERE id = $1
-            RETURNING *
-        `, [id]);
+    const result = await pool.query(
+      'DELETE FROM companies WHERE id = $1 RETURNING id',
+      [id]
+    );
 
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: "Empresa no encontrada" });
-        }
-
-        return res.status(200).json(result.rows[0]);
-
-    } catch (error) {
-        res.status(500).json({ error: error.message });
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Company not found',
+      });
     }
-};
 
+    res.json({
+      success: true,
+      data: { id: result.rows[0].id },
+    });
+  } catch (error) {
+    console.error('Delete company error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete company',
+    });
+  }
+};
 
 module.exports = {
-    getCompanies,
-    getCompaniesById,
-    createCompanies,
-    updateCompanies,
-    deleteCompanies
+  getCompanies,
+  getCompaniesById,
+  createCompanies,
+  updateCompanies,
+  deleteCompanies,
 };

@@ -1,190 +1,182 @@
-const candidatesModel = require("../models/candidates.model");
+const pool = require('../config/db');
 
+/**
+ * GET /candidates
+ * Get all candidates
+ */
 const getCandidates = async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT c.id, c.user_id, c.full_name, c.bio, c.location, c.experience_years, c.preferred_modality, c.created_at,
+              u.email, u.role
+       FROM candidates c
+       JOIN users u ON c.user_id = u.id
+       ORDER BY c.created_at DESC`
+    );
 
-    try {
-
-        const candidates = await candidatesModel.getCandidates();
-
-        res.json(candidates);
-
-    } catch (error) {
-
-        res.status(500).json({
-            error: error.message
-        });
-
-    }
+    res.json({
+      success: true,
+      data: result.rows,
+    });
+  } catch (error) {
+    console.error('Get candidates error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch candidates',
+    });
+  }
 };
 
-const buildCandidateInsert = (candidate) => {
-    const MODALITIES = ["remote", "hybrid", "on-site"];
+/**
+ * GET /candidates/:id
+ * Get candidate by ID
+ */
+const getCandidatesById = async (req, res) => {
+  try {
+    const { id } = req.params;
 
-    const { user_id, full_name, bio, location, experience_years, preferred_modality } = candidate;
+    const result = await pool.query(
+      `SELECT c.id, c.user_id, c.full_name, c.bio, c.location, c.experience_years, c.preferred_modality, c.created_at,
+              u.email, u.role
+       FROM candidates c
+       JOIN users u ON c.user_id = u.id
+       WHERE c.id = $1`,
+      [id]
+    );
 
-    if (!user_id || !Number.isInteger(user_id)) {
-        return { error: "user_id debe ser un número entero" };
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Candidate not found',
+      });
     }
 
-    if (!full_name || full_name.length > 150) {
-        return { error: "full_name es obligatorio y máximo 150 caracteres" };
-    }
-
-    if (experience_years !== undefined && !Number.isInteger(experience_years)) {
-        return { error: "experience_years debe ser un número entero" };
-    }
-
-    if (preferred_modality && !MODALITIES.includes(preferred_modality)) {
-        return { error: "preferred_modality debe ser remote, hybrid u on-site" };
-    }
-
-    return {
-        query: `
-            INSERT INTO candidates (user_id, full_name, bio, location, experience_years, preferred_modality)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING *`,
-        values: [user_id, full_name, bio || null, location || null, experience_years || 0, preferred_modality || null]
-    };
+    res.json({
+      success: true,
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error('Get candidate by ID error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch candidate',
+    });
+  }
 };
 
-const createCandidate = async (req, res) => {
-    try {
-        if (!req.body || (Array.isArray(req.body) && req.body.length === 0)) {
-            return res.status(400).json({ error: "El body no puede estar vacio" });
-        }
+/**
+ * POST /candidates
+ * Create a new candidate
+ */
+const createCandidates = async (req, res) => {
+  try {
+    const { user_id, full_name, bio, location, experience_years, preferred_modality } = req.body;
 
-        if (!Array.isArray(req.body)) {
-            const insert = buildCandidateInsert(req.body);
-
-            if (insert.error) {
-                return res.status(400).json({ error: insert.error });
-            }
-
-            const candidate = await candidatesModel.createCandidate(insert.query, insert.values);
-            return res.status(201).json(candidate);
-        }
-
-        const candidatesInserts = [];
-
-        for (const candidate of req.body) {
-            const insert = buildCandidateInsert(candidate);
-
-            if (insert.error) {
-                return res.status(400).json({ error: insert.error });
-            }
-
-            candidatesInserts.push(insert);
-        }
-
-        const insertedCandidates = await candidatesModel.createCandidatesBulk(candidatesInserts);
-        return res.status(201).json(insertedCandidates);
-
-    } catch (error) {
-        res.status(500).json({ error: error.message });
+    if (!user_id || !full_name) {
+      return res.status(400).json({
+        success: false,
+        error: 'User ID and full name are required',
+      });
     }
+
+    const result = await pool.query(
+      `INSERT INTO candidates (user_id, full_name, bio, location, experience_years, preferred_modality)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, user_id, full_name, bio, location, experience_years, preferred_modality, created_at`,
+      [user_id, full_name, bio || null, location || null, experience_years || 0, preferred_modality || null]
+    );
+
+    res.status(201).json({
+      success: true,
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error('Create candidate error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create candidate',
+    });
+  }
 };
 
-const getCandidateById = async (req, res) => {
-    try {
-        const { id } = req.params;
+/**
+ * PUT /candidates/:id
+ * Update candidate
+ */
+const updateCandidates = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { full_name, bio, location, experience_years, preferred_modality } = req.body;
 
-        const candidate = await candidatesModel.getCandidateById(id);
+    const result = await pool.query(
+      `UPDATE candidates
+       SET full_name = COALESCE($2, full_name),
+           bio = COALESCE($3, bio),
+           location = COALESCE($4, location),
+           experience_years = COALESCE($5, experience_years),
+           preferred_modality = COALESCE($6, preferred_modality)
+       WHERE id = $1
+       RETURNING id, user_id, full_name, bio, location, experience_years, preferred_modality, created_at`,
+      [id, full_name, bio, location, experience_years, preferred_modality]
+    );
 
-        if (!candidate) {
-            return res.status(404).json({ error: "Candidato no encontrado" });
-        }
-
-        res.json(candidate);
-
-    } catch (error) {
-        res.status(500).json({ error: error.message });
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Candidate not found',
+      });
     }
+
+    res.json({
+      success: true,
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error('Update candidate error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update candidate',
+    });
+  }
 };
 
-const buildCandidateUpdate = (id, candidate) => {
-    const MODALITIES = ["remote", "hybrid", "on-site"];
+/**
+ * DELETE /candidates/:id
+ * Delete candidate
+ */
+const deleteCandidates = async (req, res) => {
+  try {
+    const { id } = req.params;
 
-    const { user_id, full_name, bio, location, experience_years, preferred_modality } = candidate;
+    const result = await pool.query(
+      'DELETE FROM candidates WHERE id = $1 RETURNING id',
+      [id]
+    );
 
-    if (!Number.isInteger(Number(id))) {
-        return { error: "id debe ser un número entero" };
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Candidate not found',
+      });
     }
 
-    if (!user_id || !Number.isInteger(user_id)) {
-        return { error: "user_id debe ser un número entero" };
-    }
-
-    if (!full_name || full_name.length > 150) {
-        return { error: "full_name es obligatorio y máximo 150 caracteres" };
-    }
-
-    if (experience_years !== undefined && !Number.isInteger(experience_years)) {
-        return { error: "experience_years debe ser un número entero" };
-    }
-
-    if (preferred_modality && !MODALITIES.includes(preferred_modality)) {
-        return { error: "preferred_modality debe ser remote, hybrid u on-site" };
-    }
-
-    return {
-        query: `
-            UPDATE candidates
-            SET user_id = $1, full_name = $2, bio = $3,
-                location = $4, experience_years = $5, preferred_modality = $6
-            WHERE id = $7
-            RETURNING *`,
-        values: [user_id, full_name, bio || null, location || null, experience_years || 0, preferred_modality || null, id]
-    };
-};
-
-const updateCandidate = async (req, res) => {
-    try {
-        const { id } = req.params;
-
-        if (!req.body || Object.keys(req.body).length === 0) {
-            return res.status(400).json({ error: "El body no puede estar vacio" });
-        }
-
-        const update = buildCandidateUpdate(id, req.body);
-
-        if (update.error) {
-            return res.status(400).json({ error: update.error });
-        }
-
-        const candidate = await candidatesModel.updateCandidate(update.query, update.values);
-
-        if (!candidate) {
-            return res.status(404).json({ error: "Candidato no encontrado" });
-        }
-
-        return res.status(200).json(candidate);
-
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-};
-
-const deleteCandidate = async (req, res) => {
-    try {
-        const { id } = req.params;
-
-        const candidate = await candidatesModel.deleteCandidate(id);
-
-        if (!candidate) {
-            return res.status(404).json({ error: "Candidato no encontrado" });
-        }
-
-        return res.status(200).json(candidate);
-
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+    res.json({
+      success: true,
+      data: { id: result.rows[0].id },
+    });
+  } catch (error) {
+    console.error('Delete candidate error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete candidate',
+    });
+  }
 };
 
 module.exports = {
-    getCandidates,
-    getCandidateById,
-    createCandidate,
-    updateCandidate,
-    deleteCandidate
+  getCandidates,
+  getCandidatesById,
+  createCandidates,
+  updateCandidates,
+  deleteCandidates,
 };
