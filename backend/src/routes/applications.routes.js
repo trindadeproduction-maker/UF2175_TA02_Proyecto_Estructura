@@ -1,12 +1,16 @@
-const express = require("express");
-const router = express.Router();
+const router = require('express').Router();
+const {
+  getApplications,
+  getApplicationsById,
+  createApplications,
+  updateApplications,
+  deleteApplications,
+} = require('../controllers/applications.controller');
 
-const applicationsController = require("../controllers/applications.controller");
-
-router.get("/", applicationsController.getAllApplications);
-router.get("/:id", applicationsController.getApplicationById);
-router.post("/", applicationsController.createApplication);
-router.put("/:id", applicationsController.updateApplication);
-router.delete("/:id", applicationsController.deleteApplication);
+router.get('/', getApplications);
+router.get('/:id', getApplicationsById);
+router.post('/', createApplications);
+router.put('/:id', updateApplications);
+router.delete('/:id', deleteApplications);
 
 module.exports = router;

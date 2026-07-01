@@ -1,38 +1,14 @@
-const express = require("express");
-const router = express.Router();
-
+const router = require('express').Router();
 const {
-    getOfferTechnologies,
-    getTechnologiesByOfferId,
-    addTechnologiesToOffer,
-    deleteOfferTechnology,
-    deleteTechnologiesByOfferId
-} = require("../controllers/offerTechnologies.controller");
+  getOfferTechnologies,
+  getOfferTechnologiesByOfferId,
+  createOfferTechnologies,
+  deleteOfferTechnologies,
+} = require('../controllers/offerTechnologies.controller');
 
-
-/* =========================================================
-   READ
-========================================================= */
-
-router.get("/", getOfferTechnologies);
-router.get("/offer/:offerId", getTechnologiesByOfferId);
-
-
-/* =========================================================
-   CREATE (bulk attach)
-========================================================= */
-
-router.post("/offer/:offerId", addTechnologiesToOffer);
-
-
-/* =========================================================
-   DELETE
-========================================================= */
-
-router.delete("/offer/:offerId", deleteTechnologiesByOfferId);
-
-// composite-key deletion (required by spec)
-router.delete("/:offerId/:technologyId", deleteOfferTechnology);
-
+router.get('/', getOfferTechnologies);
+router.get('/:offerId', getOfferTechnologiesByOfferId);
+router.post('/', createOfferTechnologies);
+router.delete('/:offerId/:technologyId', deleteOfferTechnologies);
 
 module.exports = router;
